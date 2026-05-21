@@ -110,7 +110,7 @@ if archivo_cargado is not None:
         ax.set_xlabel("Línea de Tiempo")
         
         # Corrección del Warning de ticks en Matplotlib
-         total_ticks = df_historico['Periodo'].tolist() + eje_futuro
+        total_ticks = df_historico['Periodo'].tolist() + eje_futuro
         ax.set_xticks(range(len(total_ticks)))
         ax.set_xticklabels(total_ticks, rotation=45, ha='right')
         
