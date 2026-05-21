@@ -134,10 +134,13 @@ if archivo_cargado is not None:
         if col_b3.button("🦅 Cierre de Periodo (Año 2026 Completo)", use_container_width=True):
             st.session_state.horizonte = "Año Completo"
 
-        # ── 6. ALGORITMO PREDICTIVO Y SIMULACIÓN ESTOCÁSTICA ─────────────────────
+        # ── 6. ALGORITMO PREDICTIVO DINÁMICO (Crecimiento Compuesto) ─────────────
         np.random.seed(42)
         simulaciones = 1000
         media_diaria_ajustada = promedio_diario_real * factor_sel
+        
+        # Tasa de crecimiento orgánico mensual para romper la repetición
+        tasa_crecimiento_mensual = (factor_sel - 1.0) / 2 if factor_sel != 1.0 else 0.015 
         
         if st.session_state.horizonte == "Mes Actual":
             sim_remanente = np.random.normal(loc=media_diaria_ajustada, scale=media_diaria_ajustada * volatilidad, size=(dias_restantes, simulaciones))
@@ -149,26 +152,39 @@ if archivo_cargado is not None:
             
         elif st.session_state.horizonte == "Trimestre":
             dias_por_mes = [30, 31, 31]
-            dias_trimestre = sum(dias_por_mes)
-            sim_trimestre = np.random.normal(loc=media_diaria_ajustada, scale=media_diaria_ajustada * volatilidad, size=(dias_trimestre, simulaciones))
-            ventas_proyectadas_sim = sim_trimestre.sum(axis=0)
-            
-            tit_graf = f"Proyección de Ventas Mensuales: Próximo Trimestre ({escenario})"
             eje_futuro = ['Jun 26', 'Jul 26', 'Ago 26']
-            mediana_diaria = np.percentile(sim_trimestre.sum(axis=0) / dias_trimestre, 50)
-            datos_futuros_linea = [mediana_diaria * dias for dias in dias_por_mes]
+            datos_futuros_linea = []
+            venta_acumulada_kpi = 0
+            
+            for i, dias in enumerate(dias_por_mes):
+                factor_mes = (1 + tasa_crecimiento_mensual) ** (i + 1)
+                media_mes = media_diaria_ajustada * dias * factor_mes
+                
+                sim_mes = np.random.normal(loc=media_mes / dias, scale=(media_mes / dias) * volatilidad, size=(dias, simulaciones))
+                mediana_mes = np.percentile(sim_mes.sum(axis=0), 50)
+                datos_futuros_linea.append(mediana_mes)
+                venta_acumulada_kpi += mediana_mes
+            
+            ventas_proyectadas_sim = np.random.normal(loc=venta_acumulada_kpi, scale=venta_acumulada_kpi * volatilidad, size=simulaciones)
+            tit_graf = f"Proyección de Venta Neta Mensual: Próximo Trimestre ({escenario})"
             
         else:
             dias_por_mes = [30, 31, 31, 30, 31, 30, 31]
-            dias_restantes_ano = sum(dias_por_mes)
-            sim_ano = np.random.normal(loc=media_diaria_ajustada, scale=media_diaria_ajustada * volatilidad, size=(dias_restantes_ano, simulaciones))
-            cierre_mayo_p50 = venta_mayo_real + (media_diaria_ajustada * dias_restantes)
-            ventas_proyectadas_sim = cierre_mayo_p50 + sim_ano.sum(axis=0)
-            
-            tit_graf = f"Proyección Mensual: Cierre de Periodo Anual 2026 ({escenario})"
             eje_futuro = ['Jun 26', 'Jul 26', 'Ago 26', 'Sep 26', 'Oct 26', 'Nov 26', 'Dic 26']
-            mediana_diaria = np.percentile(sim_ano.sum(axis=0) / dias_restantes_ano, 50)
-            datos_futuros_linea = [mediana_diaria * dias for dias in dias_por_mes]
+            datos_futuros_linea = []
+            venta_acumulada_kpi = venta_mayo_real + (media_diaria_ajustada * dias_restantes)
+            
+            for i, dias in enumerate(dias_por_mes):
+                factor_mes = (1 + tasa_crecimiento_mensual) ** (i + 1)
+                media_mes = media_diaria_ajustada * dias * factor_mes
+                
+                sim_mes = np.random.normal(loc=media_mes / dias, scale=(media_mes / dias) * volatilidad, size=(dias, simulaciones))
+                mediana_mes = np.percentile(sim_mes.sum(axis=0), 50)
+                datos_futuros_linea.append(mediana_mes)
+                venta_acumulada_kpi += mediana_mes
+                
+            ventas_proyectadas_sim = np.random.normal(loc=venta_acumulada_kpi, scale=venta_acumulada_kpi * volatilidad, size=simulaciones)
+            tit_graf = f"Proyección Mensual: Cierre de Periodo Anual 2026 ({escenario})"
 
         p10 = np.percentile(ventas_proyectadas_sim, 10)
         p50 = np.percentile(ventas_proyectadas_sim, 50)
@@ -187,7 +203,7 @@ if archivo_cargado is not None:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # ── 7. COMPONENTE GRÁFICO: HISTÓRICO Y PROYECCIONES LIMPIAS ──────────
+        # ── 7. COMPONENTE GRÁFICO (Línea de Tiempo Anti-Aglomeración) ────────────
         st.write("### 📈 Línea de Tiempo de Rendimiento y Matriz Mensual")
         
         meses_historicos = [
@@ -195,7 +211,6 @@ if archivo_cargado is not None:
             'Ene 26', 'Feb 26', 'Mar 26', 'Abr 26', 'May 26'
         ]
         
-        # Generamos una tendencia artificial ligeramente al alza para el histórico
         np.random.seed(42)
         base_historica = venta_mayo_real * 0.75
         factores_crecimiento = np.linspace(0.85, 1.25, 16)
@@ -204,7 +219,6 @@ if archivo_cargado is not None:
         
         df_historico = pd.DataFrame({'Periodo': meses_historicos, 'Venta': valores_historicos})
 
-        # Lienzo más ancho para evitar aglomeración
         fig_lineas, ax = plt.subplots(figsize=(16, 6))
         ax.plot(df_historico['Periodo'], df_historico['Venta'], label="Histórico Mensual Real", color="#1c3d5a", marker='o', linewidth=2.5)
         
@@ -217,7 +231,6 @@ if archivo_cargado is not None:
         margen_error = np.array(datos_futuros_linea) * volatilidad
         ax.fill_between(eje_futuro, np.array(datos_futuros_linea) - margen_error, np.array(datos_futuros_linea) + margen_error, color=color_linea, alpha=0.15)
 
-        # LÍNEA DE TENDENCIA MATEMÁTICA CON DETECCIÓN ALCISTA/BAJISTA
         total_ticks = df_historico['Periodo'].tolist() + eje_futuro
         x_hist = np.arange(len(df_historico['Periodo']))
         x_total = np.arange(len(total_ticks))
@@ -225,13 +238,11 @@ if archivo_cargado is not None:
         
         coeficientes = np.polyfit(x_hist, y_valores, 1)
         tendencia_math = np.poly1d(coeficientes)
-        
         pendiente = coeficientes[0]
         tipo_tendencia = "Alcista ↗" if pendiente > 0 else "Bajista ↘"
         
         ax.plot(total_ticks, tendencia_math(x_total), color="#f39c12", linestyle=":", linewidth=2.5, label=f"Tendencia Global ({tipo_tendencia})")
 
-        # ETIQUETAS DE DATOS DECLUTTERING (Cajas semitransparentes)
         bbox_style = dict(boxstyle="round,pad=0.3", fc="white", ec="none", alpha=0.75)
 
         for i, valor in enumerate(df_historico['Venta']):
@@ -260,10 +271,8 @@ if archivo_cargado is not None:
         ax.grid(True, linestyle=':', alpha=0.5)
         
         ax.set_xticks(range(len(total_ticks)))
-        # Rotación a 45 grados para dar espacio a los meses
         ax.set_xticklabels(total_ticks, rotation=45, ha='right', fontsize=10)
         
-        # Ajuste inteligente del eje Y para evitar que las etiquetas altas se corten
         margen_superior = max(max(valores_historicos), max(datos_futuros_linea)) * 1.2
         ax.set_ylim(bottom=0, top=margen_superior)
         
@@ -275,7 +284,6 @@ if archivo_cargado is not None:
         st.markdown("<br>", unsafe_allow_html=True)
         st.write("#### 📅 Desglose de Matriz Proyectada (Mensual)")
         
-        # Creación del DataFrame para la matriz
         df_matriz_proyeccion = pd.DataFrame({
             "Mes Estimado": eje_futuro,
             "Valor Esperado (P50)": datos_futuros_linea,
@@ -289,8 +297,7 @@ if archivo_cargado is not None:
             "Escenario Optimista (P90)": "${:,.2f}"
         }), use_container_width=True)
 
-
-        # ── 9. MATRIZ ABC DE CLIENTES Y RENDIMIENTO DE COMERCIALES ────────────────
+        # ── 9. MATRIZ ABC Y RENDIMIENTO DE COMERCIALES (Top 10 + Otros) ───────────
         st.markdown("<hr>", unsafe_allow_html=True)
         c_izq, c_der = st.columns(2)
         
@@ -310,40 +317,30 @@ if archivo_cargado is not None:
                 '% Acumulado': '{:.1f}%'
             }), use_container_width=True)
             
-      with c_der:
+        with c_der:
             st.write("### 📞 Ventas por Banco / Televendedor (Top 10)")
             
-            # Agrupar y ordenar todos los datos
             df_tv_completo = df.groupby('Banco / televendedor')['Valor'].sum().reset_index()
             df_tv_completo = df_tv_completo.sort_values(by='Valor', ascending=False)
             
-            # Limitar a los Top 10 para evitar aglomeración
             top_n = 10
             if len(df_tv_completo) > top_n:
                 df_top = df_tv_completo.iloc[:top_n].copy()
                 valor_otros = df_tv_completo.iloc[top_n:]['Valor'].sum()
-                # Crear la fila "Otros"
                 df_otros = pd.DataFrame({'Banco / televendedor': ['OTROS CANALES MENORES'], 'Valor': [valor_otros]})
                 df_tv = pd.concat([df_top, df_otros], ignore_index=True)
             else:
                 df_tv = df_tv_completo.copy()
             
-            # Ordenar ascendente solo para que el más grande quede arriba en el gráfico horizontal
             df_tv = df_tv.sort_values(by='Valor', ascending=True)
             
-            # Crear el gráfico más limpio y amplio
             fig_barras, ax_bar = plt.subplots(figsize=(8, 5.5))
-            
-            # Usar color gris para "Otros" y azul para el Top
             colores = ['#95a5a6' if x == 'OTROS CANALES MENORES' else '#34495e' for x in df_tv['Banco / televendedor']]
             
             ax_bar.barh(df_tv['Banco / televendedor'], df_tv['Valor'], color=colores, edgecolor="#2c3e50", height=0.6)
             ax_bar.set_title(f"Concentración de Recaudo (Top {top_n} vs Otros)", fontsize=12, fontweight='bold', color="#1a2744")
             ax_bar.grid(True, axis='x', linestyle='--', alpha=0.4)
-            
-            # Ajustar los márgenes para que los nombres largos quepan
             plt.subplots_adjust(left=0.35)
-            
             st.pyplot(fig_barras)
 
         # ── 10. EXPORTACIÓN PROFESIONAL A PDF (REPORTLAB) ─────────────────────────
