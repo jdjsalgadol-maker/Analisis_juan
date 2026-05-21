@@ -141,7 +141,7 @@ if archivo_cargado is not None:
         factor_sel = factores[escenario]
 
         # ── 5. SELECCIÓN DE HORIZONTES DE PROYECCIÓN ─────────────────────────────
-        st.markdown("### 🔮 Elige el Horizonte de la Proyección")
+        st.markdown("### 🔮 Elige el Horizonte de la Proyección @JuanS")
         col_b1, col_b2, col_b3 = st.columns(3)
         
         if 'horizonte' not in st.session_state:
