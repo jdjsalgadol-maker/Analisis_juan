@@ -13,7 +13,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Estilos visuales personalizados para el entorno
 st.markdown("""
 <style>
     [data-testid="stSidebar"] { background-color: #0a1628; }
@@ -94,7 +93,6 @@ if archivo_cargado is not None:
         
         df.columns = [c.strip() for c in df.columns]
         
-        # Detección inteligente y flexible de columnas
         col_fecha = next((c for c in df.columns if 'fecha' in c.lower()), None)
         col_valor = next((c for c in df.columns if 'valor' in c.lower() or 'monto' in c.lower() or 'total' in c.lower()), None)
         col_banco = next((c for c in df.columns if 'banco' in c.lower() or 'televendedor' in c.lower() or 'canal' in c.lower()), None)
@@ -102,8 +100,6 @@ if archivo_cargado is not None:
         
         if not (col_fecha and col_valor and col_banco and col_nombres):
             st.error("⚠️ No se pudieron mapear automáticamente las columnas necesarias en tu archivo.")
-            st.markdown("### 🔍 Estructura encontrada en tu documento:")
-            st.code(list(df.columns))
             st.stop()
             
         df = df.rename(columns={
@@ -145,48 +141,59 @@ if archivo_cargado is not None:
         
         if st.session_state.horizonte == "Mes Actual":
             sim_remanente = np.random.normal(loc=media_diaria_ajustada, scale=media_diaria_ajustada * volatilidad, size=(dias_restantes, simulaciones))
-            ventas_proyectadas_sim = venta_mayo_real + sim_remanente.sum(axis=0)
+            ventas_proyectadas_sim = venta_mayo_real + sim_remanente.sum(axis=0) # KPI Tarjetas
+            
             tit_graf = f"Tendencia Histórica y Cierre Estimado de Mayo 2026 ({escenario})"
             eje_futuro = ['Mayo 26 (Cierre)']
-            datos_futuros_linea = [np.percentile(ventas_proyectadas_sim, 50)]
+            datos_futuros_linea = [np.percentile(ventas_proyectadas_sim, 50)] # Discreto 1 mes
             
         elif st.session_state.horizonte == "Trimestre":
-            dias_trimestre = 30 + 31 + 31
+            dias_por_mes = [30, 31, 31] # Junio, Julio, Agosto
+            dias_trimestre = sum(dias_por_mes)
             sim_trimestre = np.random.normal(loc=media_diaria_ajustada, scale=media_diaria_ajustada * volatilidad, size=(dias_trimestre, simulaciones))
-            ventas_proyectadas_sim = sim_trimestre.sum(axis=0)
-            tit_graf = f"Proyección de Ventas del Próximo Trimestre Comercial ({escenario})"
+            ventas_proyectadas_sim = sim_trimestre.sum(axis=0) # KPI Tarjetas (Acumulado)
+            
+            tit_graf = f"Proyección de Ventas Mensuales: Próximo Trimestre ({escenario})"
             eje_futuro = ['Jun 26', 'Jul 26', 'Ago 26']
-            datos_futuros_linea = [np.percentile(ventas_proyectadas_sim, 50) / 3 * i for i in range(1, 4)]
+            
+            # VALORES DISCRETOS (Mes a mes para la gráfica)
+            mediana_diaria = np.percentile(sim_trimestre.sum(axis=0) / dias_trimestre, 50)
+            datos_futuros_linea = [mediana_diaria * dias for dias in dias_por_mes]
             
         else:
-            dias_restantes_ano = 214
+            dias_por_mes = [30, 31, 31, 30, 31, 30, 31] # Junio a Diciembre
+            dias_restantes_ano = sum(dias_por_mes)
             sim_ano = np.random.normal(loc=media_diaria_ajustada, scale=media_diaria_ajustada * volatilidad, size=(dias_restantes_ano, simulaciones))
             cierre_mayo_p50 = venta_mayo_real + (media_diaria_ajustada * dias_restantes)
-            ventas_proyectadas_sim = cierre_mayo_p50 + sim_ano.sum(axis=0)
-            tit_graf = f"Simulación Macroeconómica de Cierre de Periodo Anual 2026 ({escenario})"
+            ventas_proyectadas_sim = cierre_mayo_p50 + sim_ano.sum(axis=0) # KPI Tarjetas (Acumulado Año)
+            
+            tit_graf = f"Proyección Mensual: Cierre de Periodo Anual 2026 ({escenario})"
             eje_futuro = ['Jun 26', 'Jul 26', 'Ago 26', 'Sep 26', 'Oct 26', 'Nov 26', 'Dic 26']
-            datos_futuros_linea = [cierre_mayo_p50 + (np.percentile(sim_ano.sum(axis=0), 50) / 7 * i) for i in range(1, 8)]
+            
+            # VALORES DISCRETOS (Mes a mes para la gráfica)
+            mediana_diaria = np.percentile(sim_ano.sum(axis=0) / dias_restantes_ano, 50)
+            datos_futuros_linea = [mediana_diaria * dias for dias in dias_por_mes]
 
         p10 = np.percentile(ventas_proyectadas_sim, 10)
         p50 = np.percentile(ventas_proyectadas_sim, 50)
         p90 = np.percentile(ventas_proyectadas_sim, 90)
 
-        # Despliegue de Indicadores Ejecutivos
+        # Despliegue de Indicadores Ejecutivos (Tarjetas)
         st.write(f"**Análisis Activo:** {st.session_state.horizonte} bajo el modelo estructural **{escenario}**")
         m1, m2, m3, m4 = st.columns(4)
         with m1:
             st.markdown(f'<div class="metric-card"><p class="metric-label">💰 ACUMULADO REAL (AL 20 MAYO)</p><p class="metric-value">${venta_mayo_real:,.0f}</p><p class="metric-sub">Ingresos en cartera</p></div>', unsafe_allow_html=True)
         with m2:
-            st.markdown(f'<div class="metric-card"><p class="metric-label">📉 MODELO CONSERVADOR (P10)</p><p class="metric-value">${p10:,.0f}</p><p class="metric-sub">90% prob. de superarlo</p></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-card"><p class="metric-label">📉 TOTAL CONSERVADOR (P10)</p><p class="metric-value">${p10:,.0f}</p><p class="metric-sub">Acumulado del periodo</p></div>', unsafe_allow_html=True)
         with m3:
-            st.markdown(f'<div class="metric-card"><p class="metric-label">🔮 PROYECCIÓN CENTRAL (P50)</p><p class="metric-value" style="color:#4fc3f7;">${p50:,.0f}</p><p class="metric-sub">Mediana estadística</p></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-card"><p class="metric-label">🔮 TOTAL PROYECTADO (P50)</p><p class="metric-value" style="color:#4fc3f7;">${p50:,.0f}</p><p class="metric-sub">Acumulado del periodo</p></div>', unsafe_allow_html=True)
         with m4:
-            st.markdown(f'<div class="metric-card"><p class="metric-label">🚀 TECHO OPTIMISTA (P90)</p><p class="metric-value">${p90:,.0f}</p><p class="metric-sub">10% prob. de alcanzarlo</p></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-card"><p class="metric-label">🚀 TOTAL OPTIMISTA (P90)</p><p class="metric-value">${p90:,.0f}</p><p class="metric-sub">Acumulado del periodo</p></div>', unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # ── 7. COMPONENTE GRÁFICO: HISTÓRICO Y PROYECCIONES CON TENDENCIA ──────────
-        st.write("### 📈 Línea de Tiempo de Rendimiento y Proyecciones")
+        # ── 7. COMPONENTE GRÁFICO: HISTÓRICO Y PROYECCIONES MES A MES ──────────
+        st.write("### 📈 Línea de Tiempo de Rendimiento (Valores Mensuales Segmentados)")
         
         meses_historicos = [
             'Ene 25', 'Feb 25', 'Mar 25', 'Abr 25', 'May 25', 'Jun 25', 'Jul 25', 'Ago 25', 'Sep 25', 'Oct 25', 'Nov 25', 'Dic 25',
@@ -201,23 +208,29 @@ if archivo_cargado is not None:
         df_historico = pd.DataFrame({'Periodo': meses_historicos, 'Venta': valores_historicos})
 
         fig_lineas, ax = plt.subplots(figsize=(14, 5.5))
-        ax.plot(df_historico['Periodo'], df_historico['Venta'], label="Histórico Real de Ventas", color="#1c3d5a", marker='o', linewidth=2.5)
+        ax.plot(df_historico['Periodo'], df_historico['Venta'], label="Histórico Mensual Real", color="#1c3d5a", marker='o', linewidth=2.5)
         
         eje_proyeccion = [df_historico['Periodo'].iloc[-1]] + eje_futuro
         valores_proyeccion = [df_historico['Venta'].iloc[-1]] + datos_futuros_linea
         
         color_linea = "#e74c3c" if factor_sel < 1.0 else "#27ae60"
-        ax.plot(eje_proyeccion, valores_proyeccion, label=f"Tendencia Estocástica", color=color_linea, linestyle="--", marker='s', linewidth=2.5)
-        ax.fill_between(eje_futuro, [p10]*len(eje_futuro), [p90]*len(eje_futuro), color=color_linea, alpha=0.1, label="Cono de Probabilidad (P10 - P90)")
+        ax.plot(eje_proyeccion, valores_proyeccion, label=f"Proyección Mensual ({escenario})", color=color_linea, linestyle="--", marker='s', linewidth=2.5)
+        
+        # Cono de Probabilidad adaptado a la volatilidad mensual
+        margen_error = np.array(datos_futuros_linea) * volatilidad
+        ax.fill_between(eje_futuro, np.array(datos_futuros_linea) - margen_error, np.array(datos_futuros_linea) + margen_error, color=color_linea, alpha=0.1, label="Cono de Probabilidad Mensual")
 
-        # LÍNEA DE TENDENCIA MATEMÁTICA REALIZADA CON REGRESIÓN LINEAL (POLIFIT)
-        x_num = np.arange(len(df_historico['Periodo']))
+        # LÍNEA DE TENDENCIA MATEMÁTICA REALIZADA CON REGRESIÓN LINEAL
+        total_ticks = df_historico['Periodo'].tolist() + eje_futuro
+        x_hist = np.arange(len(df_historico['Periodo']))
+        x_total = np.arange(len(total_ticks))
         y_valores = df_historico['Venta'].values
-        coeficientes = np.polyfit(x_num, y_valores, 1)
+        
+        coeficientes = np.polyfit(x_hist, y_valores, 1)
         tendencia_math = np.poly1d(coeficientes)
-        ax.plot(df_historico['Periodo'], tendencia_math(x_num), color="#f39c12", linestyle=":", linewidth=2.5, label="Tendencia Global Histórica")
+        ax.plot(total_ticks, tendencia_math(x_total), color="#f39c12", linestyle=":", linewidth=2.5, label="Tendencia Global Histórica")
 
-        # ETIQUETAS DE DATOS VALORES EN MILLONES (M)
+        # ETIQUETAS DE DATOS EN MILLONES (M)
         for i, valor in enumerate(df_historico['Venta']):
             ax.annotate(f"${valor/1000000:,.1f}M", 
                         (df_historico['Periodo'].iloc[i], valor),
@@ -238,14 +251,17 @@ if archivo_cargado is not None:
                         color=color_linea)
 
         ax.set_title(tit_graf, fontsize=12, fontweight='bold', color="#1a2744")
-        ax.set_ylabel("Monto Neto ($)")
+        ax.set_ylabel("Venta Segmentada por Mes ($)")
         ax.grid(True, linestyle=':', alpha=0.5)
         
-        total_ticks = df_historico['Periodo'].tolist() + eje_futuro
         ax.set_xticks(range(len(total_ticks)))
         ax.set_xticklabels(total_ticks, rotation=35, ha='right', fontsize=9)
         
-        ax.legend(loc="upper left")
+        # Ampliar límite superior para evitar que las etiquetas se corten
+        margen_superior = max(max(valores_historicos), max(datos_futuros_linea)) * 1.15
+        ax.set_ylim(bottom=0, top=margen_superior)
+        
+        ax.legend(loc="lower left")
         plt.tight_layout()
         st.pyplot(fig_lineas)
 
@@ -308,47 +324,3 @@ if archivo_cargado is not None:
             
             meta_texto = f"<b>Fecha de Emisión:</b> {datetime.date.today().strftime('%d/%m/%Y')}<br/>" \
                          f"<b>Escenario de Mercado Evaluado:</b> {escenario_name}<br/>" \
-                         f"<b>Horizonte de Simulación:</b> {horizonte_name}<br/>" \
-                         f"<b>Venta Base Acumulada del Reporte:</b> ${meta_texto_base_val:,.2f}" if False else f"<b>Venta Base Acumulada del Reporte:</b> ${venta_base:,.2f}"
-            
-            story.append(Paragraph(meta_texto, estilo_cuerpo))
-            story.append(Spacer(1, 15))
-            
-            datos_matriz = [
-                [Paragraph("<b>Indicador Estratégico</b>", estilo_cuerpo), Paragraph("<b>Monto Proyectado</b>", estilo_cuerpo)],
-                ["Escenario Mínimo Probable (P10)", f"${p10:,.2f}"],
-                ["Pronóstico Objetivo Central (P50)", f"${p50:,.2f}"],
-                ["Techo Máximo Estimado (P90)", f"${p90:,.2f}"]
-            ]
-            t_finan = Table(datos_matriz, colWidths=[250, 200])
-            t_finan.setStyle(TableStyle([
-                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1a2744')),
-                ('TEXTCOLOR', (0,0), (-1,0), colors.white),
-                ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#dddddd')),
-                ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.HexColor('#f9f9f9'), colors.white]),
-                ('PADDING', (0,0), (-1,-1), 6),
-            ]))
-            story.append(t_finan)
-            story.append(Spacer(1, 25))
-            
-            img_reporte = Image(buf_img, width=480, height=210)
-            story.append(img_reporte)
-            
-            doc.build(story)
-            buffer_pdf.seek(0)
-            return buffer_pdf.getvalue()
-
-        pdf_bytes = generar_reporte_pdf_reportlab(escenario, st.session_state.horizonte, venta_mayo_real)
-        
-        st.download_button(
-            label="📄 Guardar Informe y Exportar a PDF",
-            data=bytes(pdf_bytes),
-            file_name=f"Informe_Ventas_Mayo_2026_{escenario.replace(' ', '_')}.pdf",
-            mime="application/pdf",
-            use_container_width=True
-        )
-
-    except Exception as e:
-        st.error(f"Error procesando el flujo del simulador: {e}")
-else:
-    st.info("👋 Sube tu archivo base en la barra lateral para ver la línea de tiempo unificada 2025-2026 y activar los botones de proyección.")
