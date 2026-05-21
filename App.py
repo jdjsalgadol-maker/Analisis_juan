@@ -81,37 +81,31 @@ with st.sidebar:
     st.markdown('<p class="section-header">🎲 Configuración Estadística</p>', unsafe_allow_html=True)
     volatilidad = st.slider("Volatilidad del mercado (%)", min_value=5, max_value=40, value=15, step=5) / 100.0
 
-# Mapeo de factores económicos del escenario
 factores = {"Pesimista (-10%)": 0.90, "Base (100%)": 1.00, "Optimista (+10%)": 1.10, "Alto Crecimiento (+20%)": 1.20}
 factor_sel = factores[escenario]
 
 # ── 4. PROCESAMIENTO CENTRAL DE LA APLICACIÓN ────────────────────────────────
 if archivo_cargado is not None:
     try:
-        # Lectura de datos según extensión
         if archivo_cargado.name.endswith('.xlsx'):
             df = pd.read_excel(archivo_cargado)
         else:
             df = pd.read_csv(archivo_cargado)
         
-        # Limpieza inicial de espacios invisibles en los encabezados
         df.columns = [c.strip() for c in df.columns]
         
-        # ── DETECCIÓN INTELIGENTE Y FLEXIBLE DE COLUMNAS ──
+        # Detección inteligente y flexible de columnas
         col_fecha = next((c for c in df.columns if 'fecha' in c.lower()), None)
         col_valor = next((c for c in df.columns if 'valor' in c.lower() or 'monto' in c.lower() or 'total' in c.lower()), None)
         col_banco = next((c for c in df.columns if 'banco' in c.lower() or 'televendedor' in c.lower() or 'canal' in c.lower()), None)
         col_nombres = next((c for c in df.columns if 'nombre' in c.lower() or 'cliente' in c.lower()), None)
         
-        # Si falta alguna, detenemos la app y le mostramos al usuario qué columnas tiene su archivo
         if not (col_fecha and col_valor and col_banco and col_nombres):
             st.error("⚠️ No se pudieron mapear automáticamente las columnas necesarias en tu archivo.")
             st.markdown("### 🔍 Estructura encontrada en tu documento:")
-            st.write("Las columnas detectadas son las siguientes. Asegúrate de que existan equivalentes para Fecha, Valor, Banco/Televendedor y Nombres:")
             st.code(list(df.columns))
             st.stop()
             
-        # Renombrar internamente de manera dinámica para mantener la estabilidad del script
         df = df.rename(columns={
             col_fecha: 'Fecha',
             col_valor: 'Valor',
@@ -119,15 +113,12 @@ if archivo_cargado is not None:
             col_nombres: 'Nombres'
         })
             
-        # Sanitizar columna monetaria
         df['Valor'] = df['Valor'].apply(limpiar_valores_moneda)
         
-        # Variables fijas de control de tiempo (Corte: 20 de Mayo)
         fecha_corte = 20
         dias_totales_mayo = 31
         dias_restantes = dias_totales_mayo - fecha_corte
         
-        # Métricas Reales Actuales
         venta_mayo_real = df['Valor'].sum()
         promedio_diario_real = venta_mayo_real / fecha_corte
         
@@ -194,7 +185,7 @@ if archivo_cargado is not None:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # ── 7. COMPONENTE GRÁFICO: HISTÓRICO DE TENDENCIAS (2025 - 2026) ──────────
+        # ── 7. COMPONENTE GRÁFICO: HISTÓRICO Y PROYECCIONES CON TENDENCIA ──────────
         st.write("### 📈 Línea de Tiempo de Rendimiento y Proyecciones")
         
         meses_historicos = [
@@ -209,7 +200,7 @@ if archivo_cargado is not None:
         
         df_historico = pd.DataFrame({'Periodo': meses_historicos, 'Venta': valores_historicos})
 
-        fig_lineas, ax = plt.subplots(figsize=(14, 5.2))
+        fig_lineas, ax = plt.subplots(figsize=(14, 5.5))
         ax.plot(df_historico['Periodo'], df_historico['Venta'], label="Histórico Real de Ventas", color="#1c3d5a", marker='o', linewidth=2.5)
         
         eje_proyeccion = [df_historico['Periodo'].iloc[-1]] + eje_futuro
@@ -218,7 +209,34 @@ if archivo_cargado is not None:
         color_linea = "#e74c3c" if factor_sel < 1.0 else "#27ae60"
         ax.plot(eje_proyeccion, valores_proyeccion, label=f"Tendencia Estocástica", color=color_linea, linestyle="--", marker='s', linewidth=2.5)
         ax.fill_between(eje_futuro, [p10]*len(eje_futuro), [p90]*len(eje_futuro), color=color_linea, alpha=0.1, label="Cono de Probabilidad (P10 - P90)")
-        
+
+        # LÍNEA DE TENDENCIA MATEMÁTICA REALIZADA CON REGRESIÓN LINEAL (POLIFIT)
+        x_num = np.arange(len(df_historico['Periodo']))
+        y_valores = df_historico['Venta'].values
+        coeficientes = np.polyfit(x_num, y_valores, 1)
+        tendencia_math = np.poly1d(coeficientes)
+        ax.plot(df_historico['Periodo'], tendencia_math(x_num), color="#f39c12", linestyle=":", linewidth=2.5, label="Tendencia Global Histórica")
+
+        # ETIQUETAS DE DATOS VALORES EN MILLONES (M)
+        for i, valor in enumerate(df_historico['Venta']):
+            ax.annotate(f"${valor/1000000:,.1f}M", 
+                        (df_historico['Periodo'].iloc[i], valor),
+                        textcoords="offset points", 
+                        xytext=(0, 10), 
+                        ha='center', 
+                        fontsize=8, 
+                        color="#1c3d5a")
+
+        for i, valor in enumerate(datos_futuros_linea):
+            ax.annotate(f"${valor/1000000:,.1f}M", 
+                        (eje_futuro[i], valor),
+                        textcoords="offset points", 
+                        xytext=(0, 10), 
+                        ha='center', 
+                        fontsize=9, 
+                        fontweight='bold', 
+                        color=color_linea)
+
         ax.set_title(tit_graf, fontsize=12, fontweight='bold', color="#1a2744")
         ax.set_ylabel("Monto Neto ($)")
         ax.grid(True, linestyle=':', alpha=0.5)
@@ -291,7 +309,7 @@ if archivo_cargado is not None:
             meta_texto = f"<b>Fecha de Emisión:</b> {datetime.date.today().strftime('%d/%m/%Y')}<br/>" \
                          f"<b>Escenario de Mercado Evaluado:</b> {escenario_name}<br/>" \
                          f"<b>Horizonte de Simulación:</b> {horizonte_name}<br/>" \
-                         f"<b>Venta Base Acumulada del Reporte:</b> ${venta_base:,.2f}"
+                         f"<b>Venta Base Acumulada del Reporte:</b> ${meta_texto_base_val:,.2f}" if False else f"<b>Venta Base Acumulada del Reporte:</b> ${venta_base:,.2f}"
             
             story.append(Paragraph(meta_texto, estilo_cuerpo))
             story.append(Spacer(1, 15))
