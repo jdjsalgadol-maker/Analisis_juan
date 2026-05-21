@@ -65,25 +65,12 @@ def limpiar_valores_moneda(val):
     except ValueError:
         return 0.0
 
-# ── 3. CONTROLES DE LA BARRA LATERAL ─────────────────────────────────────────
+# ── 3. INGESTA DE DATOS (BARRA LATERAL) ──────────────────────────────────────
 with st.sidebar:
     st.markdown('<p class="section-header">📂 Ingesta de Datos</p>', unsafe_allow_html=True)
-    archivo_cargado = st.file_uploader("Sube el reporte de ventas actual (Excel o CSV):", type=["xlsx", "csv"])
-    
-    st.markdown('<p class="section-header">🚀 Escenarios del Modelo</p>', unsafe_allow_html=True)
-    escenario = st.radio(
-        "Selecciona la variación del mercado:",
-        ("Pesimista (-10%)", "Base (100%)", "Optimista (+10%)", "Alto Crecimiento (+20%)"),
-        index=1
-    )
-    
-    st.markdown('<p class="section-header">🎲 Configuración Estadística</p>', unsafe_allow_html=True)
-    volatilidad = st.slider("Volatilidad del mercado (%)", min_value=5, max_value=40, value=15, step=5) / 100.0
+    archivo_cargado = st.file_uploader("Sube el reporte actual (Excel o CSV):", type=["xlsx", "csv"])
 
-factores = {"Pesimista (-10%)": 0.90, "Base (100%)": 1.00, "Optimista (+10%)": 1.10, "Alto Crecimiento (+20%)": 1.20}
-factor_sel = factores[escenario]
-
-# ── 4. PROCESAMIENTO CENTRAL DE LA APLICACIÓN ────────────────────────────────
+# ── 4. PROCESAMIENTO CENTRAL Y CÁLCULO DE VOLATILIDAD ────────────────────────
 if archivo_cargado is not None:
     try:
         if archivo_cargado.name.endswith('.xlsx'):
@@ -118,7 +105,40 @@ if archivo_cargado is not None:
         venta_mayo_real = df['Valor'].sum()
         promedio_diario_real = venta_mayo_real / fecha_corte
         
-        st.sidebar.success("¡Datos procesados exitosamente!")
+        # ── CÁLCULO INTELIGENTE DE VOLATILIDAD HISTÓRICA (CV) ──
+        df_diario = df.groupby('Fecha')['Valor'].sum()
+        if len(df_diario) > 1:
+            media_v = df_diario.mean()
+            desv_v = df_diario.std()
+            vol_historica_real = (desv_v / media_v) if media_v > 0 else 0.15
+            # Limitamos visualmente el default entre 5% y 40%
+            vol_sugerida = max(0.05, min(0.40, vol_historica_real)) 
+        else:
+            vol_historica_real = 0.15
+            vol_sugerida = 0.15
+
+        # ── CONSTRUCCIÓN DINÁMICA DE LA BARRA LATERAL ──
+        with st.sidebar:
+            st.success("¡Datos procesados exitosamente!")
+            st.markdown('<p class="section-header">🚀 Escenarios del Modelo</p>', unsafe_allow_html=True)
+            escenario = st.radio(
+                "Selecciona la variación del mercado:",
+                ("Pesimista (-10%)", "Base (100%)", "Optimista (+10%)", "Alto Crecimiento (+20%)"),
+                index=1
+            )
+            
+            st.markdown('<p class="section-header">🎲 Riesgo y Volatilidad</p>', unsafe_allow_html=True)
+            st.info(f"💡 **Inteligencia de Datos:** La volatilidad real diaria en tu base es del **{vol_historica_real * 100:.1f}%**. El modelo la ha ajustado automáticamente.")
+            
+            volatilidad = st.slider(
+                "Nivel de Incertidumbre (%)", 
+                min_value=5, max_value=40, 
+                value=int(vol_sugerida * 100), 
+                step=1
+            ) / 100.0
+
+        factores = {"Pesimista (-10%)": 0.90, "Base (100%)": 1.00, "Optimista (+10%)": 1.10, "Alto Crecimiento (+20%)": 1.20}
+        factor_sel = factores[escenario]
 
         # ── 5. SELECCIÓN DE HORIZONTES DE PROYECCIÓN ─────────────────────────────
         st.markdown("### 🔮 Elige el Horizonte de la Proyección")
@@ -139,7 +159,7 @@ if archivo_cargado is not None:
         simulaciones = 1000
         media_diaria_ajustada = promedio_diario_real * factor_sel
         
-        # Tasa de crecimiento orgánico mensual para romper la repetición
+        # Tasa de crecimiento orgánico mensual
         tasa_crecimiento_mensual = (factor_sel - 1.0) / 2 if factor_sel != 1.0 else 0.015 
         
         if st.session_state.horizonte == "Mes Actual":
@@ -318,7 +338,7 @@ if archivo_cargado is not None:
             }), use_container_width=True)
             
         with c_der:
-            st.write("### 📞 Ventas por Banco / Televendedor (Top 10)")
+            st.write("### 📞 Ventas por Canal (Top 10)")
             
             df_tv_completo = df.groupby('Banco / televendedor')['Valor'].sum().reset_index()
             df_tv_completo = df_tv_completo.sort_values(by='Valor', ascending=False)
@@ -405,7 +425,7 @@ if archivo_cargado is not None:
         st.download_button(
             label="📄 Guardar Informe y Exportar a PDF",
             data=bytes(pdf_bytes),
-            file_name=f"Informe_Ventas_Mayo_2026_{escenario.replace(' ', '_')}.pdf",
+            file_name=f"Informe_Ventas_{escenario.replace(' ', '_')}.pdf",
             mime="application/pdf",
             use_container_width=True
         )
@@ -413,4 +433,4 @@ if archivo_cargado is not None:
     except Exception as e:
         st.error(f"Error procesando el flujo del simulador: {e}")
 else:
-    st.info("👋 Sube tu archivo base en la barra lateral para ver la línea de tiempo unificada 2025-2026 y activar los modelos predictivos.")
+    st.info("👋 Sube tu archivo base en la barra lateral para procesar los datos y activar los modelos predictivos.")
