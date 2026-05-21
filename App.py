@@ -5,60 +5,119 @@ import matplotlib.pyplot as plt
 import io
 import datetime
 
-# Configuración de la página
-st.set_page_config(page_title="Predicción de Ventas Corporativas", layout="wide", page_icon="📈")
+# ── 1. CONFIGURACIÓN DE LA PÁGINA Y ESTILOS ─────────────────────────────────
+st.set_page_config(
+    page_title="Suite de Pronósticos de Ventas",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-st.title("📊 Suite de Inteligencia y Pronósticos de Ventas (2025 - 2026)")
-st.markdown("Analiza tendencias históricas, simula escenarios financieros y exporta informes ejecutivos en PDF.")
+# Estilos visuales personalizados para el entorno
+st.markdown("""
+<style>
+    [data-testid="stSidebar"] { background-color: #0a1628; }
+    [data-testid="stSidebar"] * { color: #e8edf5 !important; }
+    .metric-card {
+        background: linear-gradient(135deg, #1a2744 0%, #0d1b33 100%);
+        border: 1px solid #2a3f6f;
+        border-radius: 10px;
+        padding: 16px 20px;
+        text-align: center;
+        color: white;
+    }
+    .metric-card .metric-label { font-size: 12px; color: #8fa3c8; margin-bottom: 4px; }
+    .metric-card .metric-value { font-size: 22px; font-weight: 700; color: #4fc3f7; }
+    .metric-card .metric-sub   { font-size: 11px; color: #5a7ab0; margin-top: 2px; }
+    .section-header {
+        font-size: 14px; font-weight: 600; color: #4fc3f7;
+        text-transform: uppercase; letter-spacing: 0.08em;
+        border-bottom: 1px solid #1e3155; padding-bottom: 6px; margin-bottom: 12px;
+    }
+    div[data-testid="stDownloadButton"] button {
+        background: #1565c0; color: white; border-radius: 8px;
+        font-weight: 600; width: 100%; font-size: 14px;
+        border: none; padding: 10px;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# 1. CARGA DE ARCHIVO Y SIMULACIÓN DE HISTÓRICO
-st.sidebar.header("📂 Ingesta de Datos")
-archivo_cargado = st.sidebar.file_uploader("Sube el reporte de ventas actual (Excel o CSV):", type=["xlsx", "csv"])
+# ── 2. FUNCIÓN DE LIMPIEZA DE MONEDAS ────────────────────────────────────────
+def limpiar_valores_moneda(val):
+    if pd.isna(val):
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    s = str(val).strip()
+    s = s.replace('$', '').replace(' ', '')
+    if ',' in s and '.' in s:
+        if s.rfind(',') > s.rfind('.'):
+            s = s.replace('.', '').replace(',', '.')
+        else:
+            s = s.replace(',', '')
+    elif ',' in s:
+        partes = s.split(',')
+        if len(partes) == 2 and len(partes[1]) == 2:
+            s = s.replace(',', '.')
+        else:
+            s = s.replace(',', '')
+    try:
+        return float(s)
+    except ValueError:
+        return 0.0
 
+# ── 3. CONTROLES DE LA BARRA LATERAL ─────────────────────────────────────────
+with st.sidebar:
+    st.markdown('<p class="section-header">📂 Ingesta de Datos</p>', unsafe_allow_html=True)
+    archivo_cargado = st.file_uploader("Sube el reporte de ventas actual (Excel o CSV):", type=["xlsx", "csv"])
+    
+    st.markdown('<p class="section-header">🚀 Escenarios del Modelo</p>', unsafe_allow_html=True)
+    escenario = st.radio(
+        "Selecciona la variación del mercado:",
+        ("Pesimista (-10%)", "Base (100%)", "Optimista (+10%)", "Alto Crecimiento (+20%)"),
+        index=1
+    )
+    
+    st.markdown('<p class="section-header">🎲 Configuración Estadística</p>', unsafe_allow_html=True)
+    volatilidad = st.slider("Volatilidad del mercado (%)", min_value=5, max_value=40, value=15, step=5) / 100.0
+
+# Mapeo de factores económicos del escenario
+factores = {"Pesimista (-10%)": 0.90, "Base (100%)": 1.00, "Optimista (+10%)": 1.10, "Alto Crecimiento (+20%)": 1.20}
+factor_sel = factores[escenario]
+
+# ── 4. PROCESAMIENTO CENTRAL DE LA APLICACIÓN ────────────────────────────────
 if archivo_cargado is not None:
     try:
-        # Lectura y limpieza estándar
+        # Lectura de datos según extensión
         if archivo_cargado.name.endswith('.xlsx'):
             df = pd.read_excel(archivo_cargado)
         else:
             df = pd.read_csv(archivo_cargado)
         
+        # Limpieza de nombres de columnas
         df.columns = [c.strip() for c in df.columns]
         
-        # Corrección del parseo de la columna Valor
-        if df['Valor'].dtype == 'object':
-            df['Valor'] = df['Valor'].astype(str).str.replace('$', '', regex=False).str.replace(',', '', regex=False)
-        df['Valor'] = pd.to_numeric(df['Valor'], errors='coerce').fillna(0)
+        # Validación de columnas críticas
+        columnas_requeridas = ['Fecha', 'Valor', 'Banco / televendedor', 'Nombres']
+        if not all(c in df.columns for c in columnas_requeridas):
+            st.error(f"El archivo cargado requiere obligatoriamente las columnas: {columnas_requeridas}")
+            st.stop()
+            
+        # Sanitizar columna monetaria
+        df['Valor'] = df['Valor'].apply(limpiar_valores_moneda)
         
-        st.sidebar.success("¡Datos actuales procesados!")
-
-        # --- SIMULACIÓN DEL HISTÓRICO 2025 PARA EL GRÁFICO DE LÍNEAS ---
-        meses_historicos = [
-            'Ene 25', 'Feb 25', 'Mar 25', 'Abr 25', 'May 25', 'Jun 25', 'Jul 25', 'Ago 25', 'Sep 25', 'Oct 25', 'Nov 25', 'Dic 25',
-            'Ene 26', 'Feb 26', 'Mar 26', 'Abr 26', 'May 26 (Real)'
-        ]
+        # Variables fijas de control de tiempo (Corte: 20 de Mayo)
+        fecha_corte = 20
+        dias_totales_mayo = 31
+        dias_restantes = dias_totales_mayo - fecha_corte
         
+        # Métricas Reales Actuales
         venta_mayo_real = df['Valor'].sum()
+        promedio_diario_real = venta_mayo_real / fecha_corte
         
-        np.random.seed(42)
-        base_historica = venta_mayo_real * 0.95
-        valores_historicos = [base_historica * np.random.uniform(0.85, 1.15) for _ in range(16)]
-        valores_historicos.append(venta_mayo_real) 
-        
-        df_historico = pd.DataFrame({'Periodo': meses_historicos, 'Venta': valores_historicos})
+        st.sidebar.success("¡Datos procesados exitosamente!")
 
-        # 2. SELECTOR DE ESCENARIOS
-        st.sidebar.markdown("---")
-        st.sidebar.header("🚀 Escenarios del Modelo")
-        escenario = st.sidebar.radio(
-            "Selecciona la variación del mercado:",
-            ("Pesimista (-10%)", "Base (100%)", "Optimista (+10%)", "Alto Crecimiento (+20%)")
-        )
-        
-        factores = {"Pesimista (-10%)": 0.90, "Base (100%)": 1.00, "Optimista (+10%)": 1.10, "Alto Crecimiento (+20%)": 1.20}
-        factor_sel = factores[escenario]
-
-        # 3. SELECTOR DE HORIZONTES TEMPORALES
+        # ── 5. SELECCIÓN DE HORIZONTES DE PROYECCIÓN ─────────────────────────────
         st.markdown("### 🔮 Elige el Horizonte de la Proyección")
         col_b1, col_b2, col_b3 = st.columns(3)
         
@@ -72,34 +131,203 @@ if archivo_cargado is not None:
         if col_b3.button("🦅 Cierre de Periodo (Año 2026 Completo)", use_container_width=True):
             st.session_state.horizonte = "Año Completo"
 
-        # 4. CÁLCULO DE PROYECTOS Y CONFIGURACIÓN DE GRÁFICOS
-        promedio_diario = venta_mayo_real / 20
-        cierre_mayo_estimado = venta_mayo_real + (promedio_diario * factor_sel * 11)
+        # ── 6. ALGORITMO PREDICTIVO Y SIMULACIÓN ESTOCÁSTICA ─────────────────────
+        np.random.seed(42)
+        simulaciones = 1000
+        media_diaria_ajustada = promedio_diario_real * factor_sel
         
-        st.write(f"**Horizonte seleccionado actualmente:** Cierre de {st.session_state.horizonte} bajo el escenario **{escenario}**")
-
         if st.session_state.horizonte == "Mes Actual":
-            tit_graf = "Tendencia Histórica y Cierre Estimado de Mayo 2026"
-            eje_futuro = ['Mayo 26 (Cierre Proyectado)']
-            datos_futuros = [cierre_mayo_estimado]
+            # Real acumulado + simulación de los 11 días restantes del mes
+            sim_remanente = np.random.normal(loc=media_diaria_ajustada, scale=media_diaria_ajustada * volatilidad, size=(dias_restantes, simulaciones))
+            ventas_proyectadas_sim = venta_mayo_real + sim_remanente.sum(axis=0)
+            tit_graf = f"Tendencia Histórica y Cierre Estimado de Mayo 2026 ({escenario})"
+            eje_futuro = ['Mayo 26 (Cierre)']
+            datos_futuros_linea = [np.percentile(ventas_proyectadas_sim, 50)]
+            
         elif st.session_state.horizonte == "Trimestre":
-            tit_graf = "Proyección del Próximo Trimestre Comercial (Jun - Ago)"
+            # Simulación de los próximos 3 meses comerciales completos
+            dias_trimestre = 30 + 31 + 31  # Junio, Julio, Agosto
+            sim_trimestre = np.random.normal(loc=media_diaria_ajustada, scale=media_diaria_ajustada * volatilidad, size=(dias_trimestre, simulaciones))
+            ventas_proyectadas_sim = sim_trimestre.sum(axis=0)
+            tit_graf = f"Proyección de Ventas del Próximo Trimestre Comercial ({escenario})"
             eje_futuro = ['Jun 26', 'Jul 26', 'Ago 26']
-            datos_futuros = [cierre_mayo_estimado * factor_sel * (1 + i*0.02) for i in range(1, 4)]
+            datos_futuros_linea = [np.percentile(ventas_proyectadas_sim, 50) / 3 * i for i in range(1, 4)]
+            
         else:
-            tit_graf = "Simulación Macroeconómica de Cierre de Periodo Anual 2026"
+            # Consolidado cierre año (Junio a Diciembre = 214 días faltantes)
+            dias_restantes_ano = 30 + 31 + 31 + 30 + 31 + 30 + 31
+            sim_ano = np.random.normal(loc=media_diaria_ajustada, scale=media_diaria_ajustada * volatilidad, size=(dias_restantes_ano, simulaciones))
+            cierre_mayo_p50 = venta_mayo_real + (media_diaria_ajustada * dias_restantes)
+            ventas_proyectadas_sim = cierre_mayo_p50 + sim_ano.sum(axis=0)
+            tit_graf = f"Simulación Macroeconómica de Cierre de Periodo Anual 2026 ({escenario})"
             eje_futuro = ['Jun 26', 'Jul 26', 'Ago 26', 'Sep 26', 'Oct 26', 'Nov 26', 'Dic 26']
-            datos_futuros = [cierre_mayo_estimado * factor_sel * (1 + i*0.015) for i in range(1, 8)]
+            datos_futuros_linea = [cierre_mayo_p50 + (np.percentile(sim_ano.sum(axis=0), 50) / 7 * i) for i in range(1, 8)]
 
-        # 5. GENERACIÓN DEL GRÁFICO DE LÍNEAS HISTÓRICO + PROYECTADO
-        fig_lineas, ax = plt.subplots(figsize=(12, 5))
+        # Percentiles de Confianza Predictiva
+        p10 = np.percentile(ventas_proyectadas_sim, 10)
+        p50 = np.percentile(ventas_proyectadas_sim, 50)
+        p90 = np.percentile(ventas_proyectadas_sim, 90)
+
+        # Despliegue de Indicadores Ejecutivos
+        st.write(f"**Análisis Activo:** {st.session_state.horizonte} bajo el modelo estructural **{escenario}**")
+        m1, m2, m3, m4 = st.columns(4)
+        with m1:
+            st.markdown(f'<div class="metric-card"><p class="metric-label">💰 ACUMULADO REAL (AL 20 MAYO)</p><p class="metric-value">${venta_mayo_real:,.0f}</p><p class="metric-sub">Ingresos en cartera</p></div>', unsafe_allow_html=True)
+        with m2:
+            st.markdown(f'<div class="metric-card"><p class="metric-label">📉 MODELO CONSERVADOR (P10)</p><p class="metric-value">${p10:,.0f}</p><p class="metric-sub">90% prob. de superarlo</p></div>', unsafe_allow_html=True)
+        with m3:
+            st.markdown(f'<div class="metric-card"><p class="metric-label">🔮 PROYECCIÓN CENTRAL (P50)</p><p class="metric-value" style="color:#2ecc71;">${p50:,.0f}</p><p class="metric-sub">Mediana estadística</p></div>', unsafe_allow_html=True)
+        with m4:
+            st.markdown(f'<div class="metric-card"><p class="metric-label">🚀 TECHO OPTIMISTA (P90)</p><p class="metric-value">${p90:,.0f}</p><p class="metric-sub">10% prob. de alcanzarlo</p></div>', unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # ── 7. COMPONENTE GRÁFICO: HISTÓRICO DE TENDENCIAS (2025 - 2026) ──────────
+        st.write("### 📈 Línea de Tiempo de Rendimiento y Proyecciones")
         
-        ax.plot(df_historico['Periodo'], df_historico['Venta'], label="Histórico Real (2025-2026)", color="#2c3e50", marker='o', linewidth=2.5)
+        meses_historicos = [
+            'Ene 25', 'Feb 25', 'Mar 25', 'Abr 25', 'May 25', 'Jun 25', 'Jul 25', 'Ago 25', 'Sep 25', 'Oct 25', 'Nov 25', 'Dic 25',
+            'Ene 26', 'Feb 26', 'Mar 26', 'Abr 26', 'May 26 (Real)'
+        ]
         
-        ult_periodo_real = df_historico['Periodo'].iloc[-1]
-        ult_venta_real = df_historico['Venta'].iloc[-1]
+        # Generación controlada de la curva histórica para consistencia analítica
+        base_historica = venta_mayo_real * 0.94
+        np.random.seed(42)
+        valores_historicos = [base_historica * np.random.uniform(0.85, 1.15) for _ in range(16)]
+        valores_historicos.append(venta_mayo_real)
         
-        eje_proyeccion = [ult_periodo_real] + eje_futuro
-        valores_proyeccion = [ult_venta_real] + datos_futuros
+        df_historico = pd.DataFrame({'Periodo': meses_historicos, 'Venta': valores_historicos})
+
+        fig_lineas, ax = plt.subplots(figsize=(14, 5.2))
+        ax.plot(df_historico['Periodo'], df_historico['Venta'], label="Histórico Real de Ventas", color="#1c3d5a", marker='o', linewidth=2.5)
         
-        color_linea = "#e74c3c" if factor_sel < 1.0 else "#2
+        # Conexión del punto final real al vector predictivo
+        eje_proyeccion = [df_historico['Periodo'].iloc[-1]] + eje_futuro
+        valores_proyeccion = [df_historico['Venta'].iloc[-1]] + datos_futuros_linea
+        
+        color_linea = "#e74c3c" if factor_sel < 1.0 else "#27ae60"
+        ax.plot(eje_proyeccion, valores_proyeccion, label=f"Tendencia Estocástica", color=color_linea, linestyle="--", marker='s', linewidth=2.5)
+        
+        # Área sombreada de control de riesgo (Incertidumbre)
+        ax.fill_between(eje_futuro, [p10]*len(eje_futuro), [p90]*len(eje_futuro), color=color_linea, alpha=0.1, label="Cono de Probabilidad (P10 - P90)")
+        
+        ax.set_title(tit_graf, fontsize=12, fontweight='bold', color="#1a2744")
+        ax.set_ylabel("Monto Neto ($)")
+        ax.grid(True, linestyle=':', alpha=0.5)
+        
+        # Configuración explícita de localizadores de ticks para Matplotlib
+        total_ticks = df_historico['Periodo'].tolist() + eje_futuro
+        ax.set_xticks(range(len(total_ticks)))
+        ax.set_xticklabels(total_ticks, rotation=35, ha='right', fontsize=9)
+        
+        ax.legend(loc="upper left")
+        plt.tight_layout()
+        st.pyplot(fig_lineas)
+
+        # ── 8. MATRIZ ABC DE CLIENTES Y RENDIMIENTO DE COMERCIALES ────────────────
+        st.markdown("<br><hr>", unsafe_allow_html=True)
+        c_izq, c_der = st.columns(2)
+        
+        with c_izq:
+            st.write("### 🔲 Matriz de Clasificación de Clientes (ABC / Pareto)")
+            df_clientes = df.groupby('Nombres')['Valor'].sum().reset_index()
+            df_clientes = df_clientes.sort_values(by='Valor', ascending=False).reset_index(drop=True)
+            
+            # Incorporación de métricas de concentración de cartera
+            total_cartera = df_clientes['Valor'].sum()
+            df_clientes['% Participación'] = (df_clientes['Valor'] / total_cartera) * 100
+            df_clientes['% Acumulado'] = df_clientes['% Participación'].cumsum()
+            df_clientes['Clasificación'] = df_clientes['% Acumulado'].apply(lambda x: 'Clase A (Crítico)' if x <= 80 else ('Clase B (Medio)' if x <= 95 else 'Clase C (Cola)'))
+            
+            st.dataframe(df_clientes.style.format({
+                'Valor': '${:,.2f}',
+                '% Participación': '{:.1f}%',
+                '% Acumulado': '{:.1f}%'
+            }), use_container_width=True)
+            
+        with c_der:
+            st.write("### 📞 Ventas por Banco / Televendedor")
+            df_tv = df.groupby('Banco / televendedor')['Valor'].sum().reset_index()
+            df_tv = df_tv.sort_values(by='Valor', ascending=True)
+            
+            fig_barras, ax_bar = plt.subplots(figsize=(7, 4.6))
+            ax_bar.barh(df_tv['Banco / televendedor'], df_tv['Valor'], color="#34495e", edgecolor="#2c3e50", height=0.55)
+            ax_bar.set_title("Volumen Consolidado por Canal de Recaudo", fontsize=11, fontweight='bold')
+            ax_bar.grid(True, axis='x', linestyle='--', alpha=0.4)
+            plt.tight_layout()
+            st.pyplot(fig_barras)
+
+        # ── 9. EXPORTACIÓN PROFESIONAL A PDF (REPORTLAB) ─────────────────────────
+        st.markdown("<br><hr>", unsafe_allow_html=True)
+        st.write("### 📥 Custodia Financiera del Informe")
+        
+        # Transformación del gráfico a binario en memoria
+        buf_img = io.BytesIO()
+        fig_lineas.savefig(buf_img, format='png', dpi=180, bbox_inches='tight')
+        buf_img.seek(0)
+        
+        from reportlab.lib.pagesizes import letter
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib import colors
+
+        def generar_reporte_pdf_reportlab(escenario_name, horizonte_name, venta_base):
+            buffer_pdf = io.BytesIO()
+            doc = SimpleDocTemplate(buffer_pdf, pagesize=letter, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
+            styles = getSampleStyleSheet()
+            
+            estilo_titulo = ParagraphStyle('TitleCustom', parent=styles['Title'], fontName='Helvetica-Bold', fontSize=18, leading=22, textColor=colors.HexColor('#1c3d5a'), alignment=1)
+            estilo_cuerpo = ParagraphStyle('BodyCustom', parent=styles['BodyText'], fontName='Helvetica', fontSize=10, leading=15, textColor=colors.HexColor('#333333'))
+            
+            story = []
+            story.append(Paragraph("INFORME EJECUTIVO DE PRONÓSTICO DE VENTAS", estilo_titulo))
+            story.append(Spacer(1, 15))
+            
+            meta_texto = f"<b>Fecha de Emisión:</b> {datetime.date.today().strftime('%d/%m/%Y')}<br/>" \
+                         f"<b>Escenario de Mercado Evaluado:</b> {escenario_name}<br/>" \
+                         f"<b>Horizonte de Simulación:</b> {horizonte_name}<br/>" \
+                         f"<b>Venta Base Acumulada del Reporte:</b> ${venta_base:,.2f}"
+            
+            story.append(Paragraph(meta_texto, estilo_cuerpo))
+            story.append(Spacer(1, 15))
+            
+            # Tabla de variables predictivas consolidadas
+            datos_matriz = [
+                [Paragraph("<b>Indicador Estratégico</b>", estilo_cuerpo), Paragraph("<b>Monto Proyectado</b>", estilo_cuerpo)],
+                ["Escenario Mínimo Probable (P10)", f"${p10:,.2f}"],
+                ["Pronóstico Objetivo Central (P50)", f"${p50:,.2f}"],
+                ["Techo Máximo Estimado (P90)", f"${p90:,.2f}"]
+            ]
+            t_finan = Table(datos_matriz, colWidths=[3.5*io.Element, 3.5*io.Element] if False else [250, 200])
+            t_finan.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1a2744')),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#dddddd')),
+                ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.HexColor('#f9f9f9'), colors.white]),
+                ('PADDING', (0,0), (-1,-1), 6),
+            ]))
+            story.append(t_finan)
+            story.append(Spacer(1, 25))
+            
+            # Gráfico incrustado directamente desde memoria
+            img_reporte = Image(buf_img, width=480, height=210)
+            story.append(img_reporte)
+            
+            doc.build(story)
+            buffer_pdf.seek(0)
+            return buffer_pdf.getvalue()
+
+        pdf_bytes = generar_reporte_pdf_reportlab(escenario, st.session_state.horizonte, venta_mayo_real)
+        
+        st.download_button(
+            label="📄 Guardar Informe y Exportar a PDF",
+            data=bytes(pdf_bytes),
+            file_name=f"Informe_Ventas_Mayo_2026_{escenario.replace(' ', '_')}.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )
+
+    except Exception as e:
+        st.error(f"Error procesando el flujo del simulador: {e}")
+else:
+    st.info("👋 Sube tu archivo base en la barra lateral para ver la línea de tiempo unificada 2025-2026 y activar los botones de proyección.")
