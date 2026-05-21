@@ -310,16 +310,40 @@ if archivo_cargado is not None:
                 '% Acumulado': '{:.1f}%'
             }), use_container_width=True)
             
-        with c_der:
-            st.write("### 📞 Ventas por Banco / Televendedor")
-            df_tv = df.groupby('Banco / televendedor')['Valor'].sum().reset_index()
+      with c_der:
+            st.write("### 📞 Ventas por Banco / Televendedor (Top 10)")
+            
+            # Agrupar y ordenar todos los datos
+            df_tv_completo = df.groupby('Banco / televendedor')['Valor'].sum().reset_index()
+            df_tv_completo = df_tv_completo.sort_values(by='Valor', ascending=False)
+            
+            # Limitar a los Top 10 para evitar aglomeración
+            top_n = 10
+            if len(df_tv_completo) > top_n:
+                df_top = df_tv_completo.iloc[:top_n].copy()
+                valor_otros = df_tv_completo.iloc[top_n:]['Valor'].sum()
+                # Crear la fila "Otros"
+                df_otros = pd.DataFrame({'Banco / televendedor': ['OTROS CANALES MENORES'], 'Valor': [valor_otros]})
+                df_tv = pd.concat([df_top, df_otros], ignore_index=True)
+            else:
+                df_tv = df_tv_completo.copy()
+            
+            # Ordenar ascendente solo para que el más grande quede arriba en el gráfico horizontal
             df_tv = df_tv.sort_values(by='Valor', ascending=True)
             
-            fig_barras, ax_bar = plt.subplots(figsize=(7, 4.6))
-            ax_bar.barh(df_tv['Banco / televendedor'], df_tv['Valor'], color="#34495e", edgecolor="#2c3e50", height=0.55)
-            ax_bar.set_title("Volumen Consolidado por Canal de Recaudo", fontsize=11, fontweight='bold')
+            # Crear el gráfico más limpio y amplio
+            fig_barras, ax_bar = plt.subplots(figsize=(8, 5.5))
+            
+            # Usar color gris para "Otros" y azul para el Top
+            colores = ['#95a5a6' if x == 'OTROS CANALES MENORES' else '#34495e' for x in df_tv['Banco / televendedor']]
+            
+            ax_bar.barh(df_tv['Banco / televendedor'], df_tv['Valor'], color=colores, edgecolor="#2c3e50", height=0.6)
+            ax_bar.set_title(f"Concentración de Recaudo (Top {top_n} vs Otros)", fontsize=12, fontweight='bold', color="#1a2744")
             ax_bar.grid(True, axis='x', linestyle='--', alpha=0.4)
-            plt.tight_layout()
+            
+            # Ajustar los márgenes para que los nombres largos quepan
+            plt.subplots_adjust(left=0.35)
+            
             st.pyplot(fig_barras)
 
         # ── 10. EXPORTACIÓN PROFESIONAL A PDF (REPORTLAB) ─────────────────────────
