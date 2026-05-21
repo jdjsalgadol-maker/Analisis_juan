@@ -324,3 +324,47 @@ if archivo_cargado is not None:
             
             meta_texto = f"<b>Fecha de Emisión:</b> {datetime.date.today().strftime('%d/%m/%Y')}<br/>" \
                          f"<b>Escenario de Mercado Evaluado:</b> {escenario_name}<br/>" \
+                         f"<b>Horizonte de Simulación:</b> {horizonte_name}<br/>" \
+                         f"<b>Venta Base Acumulada del Reporte:</b> ${venta_base:,.2f}"
+            
+            story.append(Paragraph(meta_texto, estilo_cuerpo))
+            story.append(Spacer(1, 15))
+            
+            datos_matriz = [
+                [Paragraph("<b>Indicador Estratégico</b>", estilo_cuerpo), Paragraph("<b>Monto Proyectado Total Periodo</b>", estilo_cuerpo)],
+                ["Escenario Mínimo Probable (P10)", f"${p10:,.2f}"],
+                ["Pronóstico Objetivo Central (P50)", f"${p50:,.2f}"],
+                ["Techo Máximo Estimado (P90)", f"${p90:,.2f}"]
+            ]
+            t_finan = Table(datos_matriz, colWidths=[250, 200])
+            t_finan.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1a2744')),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#dddddd')),
+                ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.HexColor('#f9f9f9'), colors.white]),
+                ('PADDING', (0,0), (-1,-1), 6),
+            ]))
+            story.append(t_finan)
+            story.append(Spacer(1, 25))
+            
+            img_reporte = Image(buf_img, width=480, height=210)
+            story.append(img_reporte)
+            
+            doc.build(story)
+            buffer_pdf.seek(0)
+            return buffer_pdf.getvalue()
+
+        pdf_bytes = generar_reporte_pdf_reportlab(escenario, st.session_state.horizonte, venta_mayo_real)
+        
+        st.download_button(
+            label="📄 Guardar Informe y Exportar a PDF",
+            data=bytes(pdf_bytes),
+            file_name=f"Informe_Ventas_Mayo_2026_{escenario.replace(' ', '_')}.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )
+
+    except Exception as e:
+        st.error(f"Error procesando el flujo del simulador: {e}")
+else:
+    st.info("👋 Sube tu archivo base en la barra lateral para ver la línea de tiempo unificada 2025-2026 y activar los botones de proyección.")
